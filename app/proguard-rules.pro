@@ -1,0 +1,2 @@
+-keep class com.remixforge.pro.** { *; }
+-keepclassmembers class com.remixforge.pro.data.dsp.** { *; }
