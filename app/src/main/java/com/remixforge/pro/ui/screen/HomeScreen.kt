@@ -1,7 +1,6 @@
 package com.remixforge.pro.ui.screen
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -23,35 +22,44 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.remixforge.pro.data.model.RemixPreset
 import com.remixforge.pro.data.repository.PresetRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onPresetSelected: (Uri, RemixPreset) -> Unit) {
+fun HomeScreen(onPresetSelected: (String, RemixPreset) -> Unit) {
     val ctx = LocalContext.current
-    var uri by remember { mutableStateOf<Uri?>(null) }
+    val scope = rememberCoroutineScope()
+    var localPath by remember { mutableStateOf<String?>(null) }
+    var fileName by remember { mutableStateOf<String?>(null) }
+    var isCopying by remember { mutableStateOf(false) }
+    var copyError by remember { mutableStateOf<String?>(null) }
 
-    // لانچر برای درخواست مجوز صوتی
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            // اجازه گرفتیم، دکمه انتخاب فایل کار می‌کنه
-        }
-    }
+    ) { }
 
-    // لانچر برای انتخاب فایل صوتی
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { selected ->
         if (selected != null) {
-            // این خط حیاتی است: مجوز رو پایدار می‌کنه
-            try {
-                ctx.contentResolver.takePersistableUriPermission(
-                    selected,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (_: Exception) { }
-            uri = selected
+            isCopying = true
+            copyError = null
+            scope.launch {
+                try {
+                    val localFile = withContext(Dispatchers.IO) {
+                        copyUriToCache(ctx, selected)
+                    }
+                    localPath = localFile.absolutePath
+                    fileName = localFile.name
+                } catch (e: Exception) {
+                    copyError = "خطا در کپی: ${e.message}"
+                } finally {
+                    isCopying = false
+                }
+            }
         }
     }
 
@@ -59,21 +67,16 @@ fun HomeScreen(onPresetSelected: (Uri, RemixPreset) -> Unit) {
         topBar = { TopAppBar(title = { Text("RemixForge Pro") }) },
         floatingActionButton = {
             FloatingActionButton(onClick = {
-                // اول مجوز، بعد انتخاب فایل
                 val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                     Manifest.permission.READ_MEDIA_AUDIO
                 else
                     Manifest.permission.READ_EXTERNAL_STORAGE
 
-                val hasPerm = ContextCompat.checkSelfPermission(ctx, permission) ==
+                val has = ContextCompat.checkSelfPermission(ctx, permission) ==
                         PackageManager.PERMISSION_GRANTED
 
-                if (hasPerm) {
-                    picker.launch(arrayOf("audio/*"))
-                } else {
-                    permissionLauncher.launch(permission)
-                    // بعد از گرفتن مجوز، خود کاربر دوباره دکمه رو بزنه
-                }
+                if (has) picker.launch(arrayOf("audio/*"))
+                else permissionLauncher.launch(permission)
             }) {
                 Icon(Icons.Default.Add, contentDescription = "add")
             }
@@ -92,18 +95,33 @@ fun HomeScreen(onPresetSelected: (Uri, RemixPreset) -> Unit) {
                 ) {
                     Icon(Icons.Default.MusicNote, contentDescription = null)
                     Spacer(Modifier.width(12.dp))
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            if (uri == null) "آهنگی انتخاب نشده" else "آهنگ انتخاب شد ✓",
+                            when {
+                                isCopying -> "در حال کپی فایل..."
+                                localPath != null -> "آهنگ آماده ✓"
+                                else -> "آهنگی انتخاب نشده"
+                            },
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            if (uri == null) "دکمه + پایین" else "یه پریست انتخاب کن",
-                            style = MaterialTheme.typography.bodySmall
+                            when {
+                                isCopying -> "صبر کن..."
+                                fileName != null -> fileName!!
+                                else -> "دکمه + پایین"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2
                         )
                     }
                 }
             }
+
+            copyError?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = MaterialTheme.colorScheme.error)
+            }
+
             Spacer(Modifier.height(20.dp))
             Text("پریست‌ها:", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(12.dp))
@@ -115,8 +133,10 @@ fun HomeScreen(onPresetSelected: (Uri, RemixPreset) -> Unit) {
             ) {
                 items(PresetRepository.presets) { p ->
                     Card(
-                        onClick = { uri?.let { onPresetSelected(it, p) } },
-                        enabled = uri != null,
+                        onClick = {
+                            localPath?.let { onPresetSelected(it, p) }
+                        },
+                        enabled = localPath != null,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(Modifier.padding(12.dp)) {
@@ -129,4 +149,33 @@ fun HomeScreen(onPresetSelected: (Uri, RemixPreset) -> Unit) {
             }
         }
     }
+}
+
+/**
+ * URI رو می‌خونه و به یه فایل محلی کپی می‌کنه
+ */
+private fun copyUriToCache(ctx: android.content.Context, uri: Uri): File {
+    val dir = File(ctx.cacheDir, "input").apply { mkdirs() }
+    val out = File(dir, "input_${System.currentTimeMillis()}.audio")
+
+    // اسم اصلی رو تا جای ممکن نگه دار (اختیاری)
+    val name = queryName(ctx, uri)
+    val finalFile = if (name != null) File(dir, name) else out
+
+    ctx.contentResolver.openInputStream(uri)?.use { input ->
+        finalFile.outputStream().use { output ->
+            input.copyTo(output)
+        }
+    } ?: throw Exception("نمی‌توان فایل را باز کرد")
+
+    return finalFile
+}
+
+private fun queryName(ctx: android.content.Context, uri: Uri): String? {
+    return try {
+        ctx.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+        }
+    } catch (_: Exception) { null }
 }
