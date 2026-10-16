@@ -9,6 +9,7 @@
     <application
         android:allowBackup="true"
         android:label="RemixForge Pro"
+        android:largeHeap="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.RemixForgePro">
 
