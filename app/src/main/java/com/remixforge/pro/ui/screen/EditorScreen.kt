@@ -128,7 +128,7 @@ fun EditorScreen(uri: Uri, preset: RemixPreset, onBack: () -> Unit, onExported: 
                             result = wav
                             onExported(wav)
                         } catch (e: Exception) {
-                            error = e.message ?: "خطا"
+                            error = "خطا: ${e.message ?: "نامشخص"}"
                         } finally {
                             busy = false
                         }
