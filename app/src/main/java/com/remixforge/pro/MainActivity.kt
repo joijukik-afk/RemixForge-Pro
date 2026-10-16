@@ -40,8 +40,8 @@ private fun AppNav() {
     NavHost(nav, startDestination = "home") {
         composable("home") {
             HomeScreen(
-                onPresetSelected = { localPath, preset ->
-                    val enc = URLEncoder.encode(localPath, StandardCharsets.UTF_8.name())
+                onPresetSelected = { path, preset ->
+                    val enc = URLEncoder.encode(path, StandardCharsets.UTF_8.name())
                     nav.navigate("editor/$enc/${preset.id}")
                 }
             )
@@ -49,10 +49,10 @@ private fun AppNav() {
         composable("editor/{path}/{presetId}") { entry ->
             val enc = entry.arguments?.getString("path") ?: return@composable
             val pid = entry.arguments?.getString("presetId") ?: return@composable
-            val localPath = URLDecoder.decode(enc, StandardCharsets.UTF_8.name())
+            val path = URLDecoder.decode(enc, StandardCharsets.UTF_8.name())
             val preset = PresetRepository.getById(pid) ?: return@composable
             EditorScreen(
-                localPath = localPath,
+                localPath = path,
                 preset = preset,
                 onBack = { nav.popBackStack() },
                 onExported = { }
