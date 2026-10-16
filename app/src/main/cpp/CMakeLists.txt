@@ -2,46 +2,18 @@ cmake_minimum_required(VERSION 3.22.1)
 project("remixforge")
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# SoundTouch sources
-add_library(soundtouch STATIC
-    soundtouch/SoundTouch.cpp
-    soundtouch/FIFOSampleBuffer.cpp
-    soundtouch/RateTransposer.cpp
-    soundtouch/AAFilter.cpp
-    soundtouch/TDStretch.cpp
-    soundtouch/FIRFilter.cpp
-)
+file(GLOB SOUNDTOUCH_SRC ${CMAKE_CURRENT_SOURCE_DIR}/soundtouch/*.cpp)
+add_library(soundtouch STATIC ${SOUNDTOUCH_SRC})
+target_include_directories(soundtouch PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/soundtouch)
 
-target_include_directories(soundtouch PUBLIC soundtouch)
+file(GLOB LAME_SRC ${CMAKE_CURRENT_SOURCE_DIR}/lame/*.c)
+list(FILTER LAME_SRC EXCLUDE REGEX ".*(mpglib|main|get_audio|lametime|parse|rtp|timestatus|console|brhist|svq3|i386|vector|xmm_quantize_sub).*")
+add_library(mp3lame STATIC ${LAME_SRC})
+target_include_directories(mp3lame PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/lame)
+target_compile_definitions(mp3lame PRIVATE HAVE_CONFIG_H=1)
 
-# LAME sources
-add_library(mp3lame STATIC
-    lame/bitstream.c
-    lame/encoder.c
-    lame/fft.c
-    lame/gain_analysis.c
-    lame/id3tag.c
-    lame/lame.c
-    lame/mpglib_interface.c
-    lame/newmdct.c
-    lame/presets.c
-    lame/psymodel.c
-    lame/quantize.c
-    lame/quantize_pvt.c
-    lame/reservoir.c
-    lame/set_get.c
-    lame/tables.c
-    lame/takehiro.c
-    lame/util.c
-    lame/vbrquantize.c
-    lame/VbrTag.c
-)
-
-target_include_directories(mp3lame PUBLIC lame)
-target_compile_definitions(mp3lame PUBLIC HAVE_CONFIG_H=1)
-
-# Native wrapper
 add_library(remixforge SHARED
     native-lib.cpp
     SoundTouchWrapper.cpp
