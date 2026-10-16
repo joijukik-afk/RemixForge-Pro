@@ -2,37 +2,38 @@ package com.remixforge.pro.data.dsp
 
 import com.remixforge.pro.data.model.RemixPreset
 import kotlin.math.abs
-import kotlin.math.pow
 
 class DspChain(private val preset: RemixPreset, private val sr: Int) {
 
-    fun process(input: FloatArray, channels: Int): FloatArray {
+    fun process(
+        input: FloatArray,
+        channels: Int,
+        onStage: (String, Float) -> Unit = { _, _ -> }
+    ): FloatArray {
         var s = input
 
-        // 1. Highpass
+        onStage("Highpass...", 0.05f)
         if (preset.highpassHz > 20) {
             s = BiquadHighpass(preset.highpassHz, sr).process(s)
         }
 
-        // 2. EQ
+        onStage("EQ...", 0.20f)
         if (preset.eqBands.isNotEmpty()) {
             s = EQProcessor(sr, preset.eqBands).process(s)
         }
 
-        // 3. Compressor
+        onStage("Compressor...", 0.35f)
         s = CompressorProcessor(
             preset.compThresholdDb, preset.compRatio,
             preset.compAttackMs, preset.compReleaseMs, sr
         ).processStereo(s)
 
-        // 4. Speed + Pitch (بدون NDK)
+        onStage("تغییر سرعت...", 0.50f)
         if (preset.tempo != 1.0f) {
             s = SimpleStretch.process(s, preset.tempo, channels)
         }
-        // توجه: pitch به تنهایی با این روش قابل تغییر نیست.
-        // فعلاً فقط tempo اعمال می‌شه (که پیچ رو هم به همراه داره)
 
-        // 5. Reverb
+        onStage("Reverb...", 0.70f)
         if (preset.reverbWet > 0.01f && channels == 2) {
             s = ReverbProcessor(
                 sr, preset.reverbWet,
@@ -40,15 +41,15 @@ class DspChain(private val preset: RemixPreset, private val sr: Int) {
             ).process(s)
         }
 
-        // 6. Lowpass
+        onStage("Lowpass...", 0.85f)
         if (preset.lowpassHz < 20000) {
             s = BiquadLowpass(preset.lowpassHz, sr).process(s)
         }
 
-        // 7. Limiter
+        onStage("لیمیتر...", 0.92f)
         s = LimiterProcessor(preset.limiterCeilingDb, sr).process(s)
 
-        // 8. Normalize
+        onStage("نرمال‌سازی...", 0.97f)
         var peak = 0f
         for (v in s) { val a = abs(v); if (a > peak) peak = a }
         if (peak > 0.0001f) {
@@ -56,6 +57,7 @@ class DspChain(private val preset: RemixPreset, private val sr: Int) {
             for (i in s.indices) s[i] *= g
         }
 
+        onStage("تمام", 1.0f)
         return s
     }
 }
