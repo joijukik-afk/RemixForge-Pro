@@ -11,197 +11,102 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.remixforge.pro.data.dsp.AudioDecoder
+import com.remixforge.pro.data.dsp.AudioEncoder
+import com.remixforge.pro.data.dsp.DspChain
+import com.remixforge.pro.data.dsp.WavWriter
 import com.remixforge.pro.data.model.RemixPreset
-import com.remixforge.pro.data.model.RemixPreset
-import com.remixforge.pro.domain.usecase.ProcessRemixUseCase
 import com.remixforge.pro.util.FileUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditorScreen(
-    uri: Uri,
-    preset: RemixPreset,
-    onBack: () -> Unit,
-    onExported: (File) -> Unit
-) {
-    val context = LocalContext.current
+fun EditorScreen(uri: Uri, preset: RemixPreset, onBack: () -> Unit, onExported: (File) -> Unit) {
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("") }
+    var progress by remember { mutableFloatStateOf(0f) }
+    var result by remember { mutableStateOf<File?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
 
-    var isProcessing by remember { mutableStateOf(false) }
-    var progress by remember { mutableStateOf(0f) }
-    var statusText by remember { mutableStateOf("") }
-    var errorText by remember { mutableStateOf<String?>(null) }
-    var outputFile by remember { mutableStateOf<File?>(null) }
-
-    // تنظیمات قابل تغییر
     var tempo by remember { mutableFloatStateOf(preset.tempo) }
     var pitch by remember { mutableFloatStateOf(preset.pitchSemitones) }
     var reverbWet by remember { mutableFloatStateOf(preset.reverbWet) }
     var lowpass by remember { mutableIntStateOf(preset.lowpassHz) }
-    var compThreshold by remember { mutableFloatStateOf(preset.compThresholdDb) }
-    var limiterCeiling by remember { mutableFloatStateOf(preset.limiterCeilingDb) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(preset.name) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "بازگشت")
-                    }
-                }
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "back") } }
             )
         }
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-        ) {
+    ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(16.dp)) {
+            Text("سرعت: ${"%.2f".format(tempo)}x")
+            Slider(tempo, { tempo = it }, valueRange = 0.5f..1.5f)
+            Text("پیچ: ${"%.1f".format(pitch)} نیم‌پرده")
+            Slider(pitch, { pitch = it }, valueRange = -8f..8f)
+            Text("ریورب: ${"%.0f".format(reverbWet * 100)}%")
+            Slider(reverbWet, { reverbWet = it }, valueRange = 0f..0.8f)
+            Text("Lowpass: $lowpass Hz")
+            Slider(lowpass.toFloat(), { lowpass = it.toInt() }, valueRange = 4000f..20000f)
 
-            // ====== Time & Pitch ======
-            SectionTitle("زمان و پیچ")
-            SliderRow("سرعت (Tempo)", tempo, 0.5f..1.5f) { tempo = it }
-            SliderRow("پیچ (Pitch)", pitch, -8f..8f) { pitch = it }
-            Text("پیچ: ${"%.1f".format(pitch)} نیم‌پرده", style = MaterialTheme.typography.labelSmall)
-
-            Spacer(Modifier.height(16.dp))
-
-            // ====== Reverb ======
-            SectionTitle("ریورب")
-            SliderRow("میزان ریورب", reverbWet, 0f..0.8f) { reverbWet = it }
-
-            Spacer(Modifier.height(16.dp))
-
-            // ====== Filter ======
-            SectionTitle("فیلتر")
-            SliderRow("Lowpass (Hz)", lowpass.toFloat(), 4000f..20000f) {
-                lowpass = it.toInt()
-            }
-            Text("${lowpass} Hz", style = MaterialTheme.typography.labelSmall)
-
-            Spacer(Modifier.height(16.dp))
-
-            // ====== Dynamics ======
-            SectionTitle("دینامیک")
-            SliderRow("کمپرسور (Threshold)", compThreshold, -30f..0f) { compThreshold = it }
-            SliderRow("لیمیتر (Ceiling)", limiterCeiling, -6f..0f) { limiterCeiling = it }
-
-            Spacer(Modifier.height(24.dp))
-
-            // ====== Processing ======
-            if (isProcessing) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth()
-                )
+            Spacer(Modifier.height(20.dp))
+            if (busy) {
+                LinearProgressIndicator({ progress }, Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                Text(statusText, style = MaterialTheme.typography.bodySmall)
+                Text(status, style = MaterialTheme.typography.bodySmall)
             }
-
-            errorText?.let {
-                Text(it, color = MaterialTheme.colorScheme.error)
-                Spacer(Modifier.height(8.dp))
-            }
-
-            outputFile?.let { file ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    )
-                ) {
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            result?.let {
+                Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("✓ ریمیکس آماده شد", style = MaterialTheme.typography.titleSmall)
-                        Text(file.absolutePath, style = MaterialTheme.typography.bodySmall)
+                        Text("✓ آماده شد", style = MaterialTheme.typography.titleSmall)
+                        Text(it.absolutePath, style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                Spacer(Modifier.height(8.dp))
             }
-
+            Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
-                    isProcessing = true
-                    errorText = null
-                    outputFile = null
-                    progress = 0f
-                    statusText = "در حال دیکد کردن..."
-
+                    busy = true; error = null; result = null; progress = 0f
                     scope.launch {
-                        val outDir = FileUtils.getRemixDir(context)
-                        val outFile = File(outDir, "remix_${preset.id}_${System.currentTimeMillis()}.wav")
-
-                        val modifiedPreset = preset.copy(
-                            tempo = tempo,
-                            pitchSemitones = pitch,
-                            reverbWet = reverbWet,
-                            lowpassHz = lowpass,
-                            compThresholdDb = compThreshold,
-                            limiterCeilingDb = limiterCeiling
-                        )
-
-                        val useCase = ProcessRemixUseCase(context)
-                        useCase.execute(uri, modifiedPreset, outFile) { p ->
-                            when (p) {
-                                is ProcessRemixUseCase.Progress.Decoding -> {
-                                    progress = p.progress
-                                    statusText = "در حال دیکد کردن..."
-                                }
-                                is ProcessRemixUseCase.Progress.Processing -> {
-                                    progress = p.progress
-                                    statusText = "در حال پردازش DSP..."
-                                }
-                                is ProcessRemixUseCase.Progress.Done -> {
-                                    progress = 1f
-                                    statusText = "تمام شد ✓"
-                                    outputFile = p.outputFile
-                                    isProcessing = false
-                                    onExported(p.outputFile)
-                                }
-                                is ProcessRemixUseCase.Progress.Error -> {
-                                    errorText = p.message
-                                    isProcessing = false
-                                }
+                        try {
+                            status = "دیکد..."
+                            progress = 0.1f
+                            val decoded = withContext(Dispatchers.IO) { AudioDecoder.decode(ctx, uri) }
+                            progress = 0.3f; status = "پردازش..."
+                            val modified = preset.copy(tempo = tempo, pitchSemitones = pitch,
+                                reverbWet = reverbWet, lowpassHz = lowpass)
+                            val processed = withContext(Dispatchers.Default) {
+                                DspChain(modified, decoded.sampleRate).process(decoded.samples, decoded.channels)
                             }
-                        }
+                            progress = 0.6f; status = "WAV..."
+                            val wav = File(FileUtils.remixDir(ctx), "remix_${System.currentTimeMillis()}.wav")
+                            withContext(Dispatchers.IO) {
+                                WavWriter.write(wav, processed, decoded.sampleRate, decoded.channels)
+                            }
+                            progress = 0.8f; status = "MP3..."
+                            val mp3 = File(FileUtils.exportDir(), "RemixForge_${System.currentTimeMillis()}.mp3")
+                            withContext(Dispatchers.IO) {
+                                AudioEncoder().encodeToMp3(processed, decoded.sampleRate, decoded.channels, 320, mp3)
+                            }
+                            progress = 1f; status = "تمام ✓"
+                            result = mp3
+                            onExported(mp3)
+                        } catch (e: Exception) {
+                            error = e.message ?: "خطا"
+                        } finally { busy = false }
                     }
                 },
-                enabled = !isProcessing,
+                enabled = !busy,
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (isProcessing) "در حال پردازش..." else "شروع ریمیکس")
-            }
+            ) { Text(if (busy) "در حال پردازش..." else "ساخت ریمیکس") }
         }
-    }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.titleMedium)
-    Spacer(Modifier.height(8.dp))
-}
-
-@Composable
-private fun SliderRow(
-    label: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit
-) {
-    Column {
-        Text(
-            "$label: ${"%.2f".format(value)}",
-            style = MaterialTheme.typography.labelMedium
-        )
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = range,
-            modifier = Modifier.fillMaxWidth()
-        )
     }
 }
