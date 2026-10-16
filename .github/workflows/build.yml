@@ -22,18 +22,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Fix gradlew permissions and line endings
-        run: |
-          chmod +x ./gradlew || true
-          sed -i 's/\r$//' ./gradlew || true
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.7
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Fix gradlew permissions
+        run: |
+          chmod +x ./gradlew || true
+          sed -i 's/\r$//' ./gradlew || true
 
       - name: Download SoundTouch
         run: |
@@ -55,15 +56,13 @@ jobs:
           rm -rf _lame
 
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace --no-daemon --info
+        run: gradle assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: RemixForge-APK
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/logs/*.txt
+          path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
           if-no-files-found: warn
