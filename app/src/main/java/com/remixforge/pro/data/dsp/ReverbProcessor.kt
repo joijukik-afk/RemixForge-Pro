@@ -4,24 +4,36 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
+/**
+ * نسخه سریع — 4 comb + 2 allpass
+ */
 class ReverbProcessor(sr: Int, wet: Float, roomSize: Float, damping: Float) {
     private val scale = sr / 44100f
-    private val spread = 23
 
-    private val combDL = intArrayOf((1116 * scale).toInt(), (1188 * scale).toInt(),
-        (1277 * scale).toInt(), (1356 * scale).toInt())
-    private val combDR = combDL.map { it + (spread * scale).toInt() }.toIntArray()
-    private val combBL = combDL.map { FloatArray(it.coerceAtLeast(1)) }
-    private val combBR = combDR.map { FloatArray(it.coerceAtLeast(1)) }
-    private val combIL = IntArray(4); private val combIR = IntArray(4)
-    private val storeL = FloatArray(4); private val storeR = FloatArray(4)
+    private val combDelaysL = intArrayOf(
+        (1116 * scale).toInt().coerceAtLeast(1),
+        (1277 * scale).toInt().coerceAtLeast(1),
+        (1356 * scale).toInt().coerceAtLeast(1),
+        (1188 * scale).toInt().coerceAtLeast(1)
+    )
+    private val combDelaysR = combDelaysL.map { it + 23 }.toIntArray()
 
-    private val apDL = intArrayOf((556 * scale).toInt(), (441 * scale).toInt(),
-        (341 * scale).toInt(), (225 * scale).toInt())
-    private val apDR = apDL.map { it + (spread * scale).toInt() }.toIntArray()
-    private val apBL = apDL.map { FloatArray(it.coerceAtLeast(1)) }
-    private val apBR = apDR.map { FloatArray(it.coerceAtLeast(1)) }
-    private val apIL = IntArray(4); private val apIR = IntArray(4)
+    private val combBL = combDelaysL.map { FloatArray(it) }
+    private val combBR = combDelaysR.map { FloatArray(it) }
+    private val combIL = IntArray(4)
+    private val combIR = IntArray(4)
+    private val storeL = FloatArray(4)
+    private val storeR = FloatArray(4)
+
+    private val apDelaysL = intArrayOf(
+        (556 * scale).toInt().coerceAtLeast(1),
+        (341 * scale).toInt().coerceAtLeast(1)
+    )
+    private val apDelaysR = apDelaysL.map { it + 23 }.toIntArray()
+    private val apBL = apDelaysL.map { FloatArray(it) }
+    private val apBR = apDelaysR.map { FloatArray(it) }
+    private val apIL = IntArray(2)
+    private val apIR = IntArray(2)
 
     private val fb = 0.5f + roomSize * 0.48f
     private val d1 = damping * 0.4f
@@ -33,9 +45,13 @@ class ReverbProcessor(sr: Int, wet: Float, roomSize: Float, damping: Float) {
     fun process(input: FloatArray): FloatArray {
         val out = FloatArray(input.size)
         val frames = input.size / 2
+
         for (f in 0 until frames) {
-            val inL = input[f * 2]; val inR = input[f * 2 + 1]
-            var outL = 0f; var outR = 0f
+            val inL = input[f * 2]
+            val inR = input[f * 2 + 1]
+            var outL = 0f
+            var outR = 0f
+
             for (c in 0..3) {
                 val bL = combBL[c]; val iL = combIL[c]
                 val yL = bL[iL]; outL += yL
@@ -49,7 +65,8 @@ class ReverbProcessor(sr: Int, wet: Float, roomSize: Float, damping: Float) {
                 bR[iR] = inR + storeR[c] * fb
                 combIR[c] = (iR + 1) % bR.size
             }
-            for (a in 0..3) {
+
+            for (a in 0..1) {
                 val bL = apBL[a]; val iL = apIL[a]
                 val oL = bL[iL]; val nL = outL - oL * 0.5f
                 bL[iL] = outL + oL * 0.5f; outL = nL
@@ -60,6 +77,7 @@ class ReverbProcessor(sr: Int, wet: Float, roomSize: Float, damping: Float) {
                 bR[iR] = outR + oR * 0.5f; outR = nR
                 apIR[a] = (iR + 1) % bR.size
             }
+
             out[f * 2] = inL * dry + outL * w1 + outR * w2
             out[f * 2 + 1] = inR * dry + outR * w1 + outL * w2
         }
