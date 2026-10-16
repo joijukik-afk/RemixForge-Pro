@@ -1,70 +1,51 @@
 #include "SoundTouchWrapper.h"
 #include "SoundTouch.h"
-#include <android/log.h>
 
-#define LOG_TAG "SoundTouchWrapper"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-
-SoundTouchWrapper::SoundTouchWrapper(int sr, int ch)
-    : sampleRate(sr), channels(ch) {
-    soundtouch::SoundTouch* st = new soundtouch::SoundTouch();
-    st->setSampleRate(sr);
-    st->setChannels(ch);
-    st->setSetting(SETTING_USE_QUICKSEEK, 0);
-    st->setSetting(SETTING_USE_AA_FILTER, 1);
-    soundTouch = st;
+SoundTouchWrapper::SoundTouchWrapper(int sr, int ch) : sampleRate(sr), channels(ch) {
+    auto* s = new soundtouch::SoundTouch();
+    s->setSampleRate(sr);
+    s->setChannels(ch);
+    s->setSetting(SETTING_USE_QUICKSEEK, 0);
+    s->setSetting(SETTING_USE_AA_FILTER, 1);
+    st = s;
 }
 
 SoundTouchWrapper::~SoundTouchWrapper() {
-    delete static_cast<soundtouch::SoundTouch*>(soundTouch);
+    delete static_cast<soundtouch::SoundTouch*>(st);
 }
 
 void SoundTouchWrapper::setTempo(float tempo) {
-    static_cast<soundtouch::SoundTouch*>(soundTouch)->setTempo(tempo);
+    static_cast<soundtouch::SoundTouch*>(st)->setTempo(tempo);
 }
 
 void SoundTouchWrapper::setPitch(float semitones) {
-    static_cast<soundtouch::SoundTouch*>(soundTouch)->setPitchSemiTones(semitones);
-}
-
-void SoundTouchWrapper::setRate(float rate) {
-    static_cast<soundtouch::SoundTouch*>(soundTouch)->setRate(rate);
+    static_cast<soundtouch::SoundTouch*>(st)->setPitchSemiTones(semitones);
 }
 
 std::vector<int16_t> SoundTouchWrapper::process(const std::vector<int16_t>& input) {
-    auto* st = static_cast<soundtouch::SoundTouch*>(soundTouch);
-    st->putSamples(input.data(), input.size() / channels);
-
+    auto* s = static_cast<soundtouch::SoundTouch*>(st);
+    s->putSamples(input.data(), input.size() / channels);
     const int chunk = 8192;
-    std::vector<int16_t> output(chunk * channels);
-    std::vector<int16_t> result;
-
-    int received;
+    std::vector<int16_t> buf(chunk * channels);
+    std::vector<int16_t> out;
+    int n;
     do {
-        received = st->receiveSamples(output.data(), chunk);
-        if (received > 0) {
-            result.insert(result.end(), output.begin(), output.begin() + received * channels);
-        }
-    } while (received > 0);
-
-    return result;
+        n = s->receiveSamples(buf.data(), chunk);
+        if (n > 0) out.insert(out.end(), buf.begin(), buf.begin() + n * channels);
+    } while (n > 0);
+    return out;
 }
 
 std::vector<int16_t> SoundTouchWrapper::flush() {
-    auto* st = static_cast<soundtouch::SoundTouch*>(soundTouch);
-    st->flush();
-
+    auto* s = static_cast<soundtouch::SoundTouch*>(st);
+    s->flush();
     const int chunk = 8192;
-    std::vector<int16_t> output(chunk * channels);
-    std::vector<int16_t> result;
-
-    int received;
+    std::vector<int16_t> buf(chunk * channels);
+    std::vector<int16_t> out;
+    int n;
     do {
-        received = st->receiveSamples(output.data(), chunk);
-        if (received > 0) {
-            result.insert(result.end(), output.begin(), output.begin() + received * channels);
-        }
-    } while (received > 0);
-
-    return result;
+        n = s->receiveSamples(buf.data(), chunk);
+        if (n > 0) out.insert(out.end(), buf.begin(), buf.begin() + n * channels);
+    } while (n > 0);
+    return out;
 }
