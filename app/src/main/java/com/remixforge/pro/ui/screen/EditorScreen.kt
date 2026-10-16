@@ -1,6 +1,5 @@
 package com.remixforge.pro.ui.screen
 
-import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,7 +22,12 @@ import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditorScreen(uri: Uri, preset: RemixPreset, onBack: () -> Unit, onExported: (File) -> Unit) {
+fun EditorScreen(
+    localPath: String,
+    preset: RemixPreset,
+    onBack: () -> Unit,
+    onExported: (File) -> Unit
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -98,10 +102,17 @@ fun EditorScreen(uri: Uri, preset: RemixPreset, onBack: () -> Unit, onExported: 
                     progress = 0f
                     scope.launch {
                         try {
+                            val inputFile = File(localPath)
+                            if (!inputFile.exists()) {
+                                error = "فایل ورودی پیدا نشد"
+                                busy = false
+                                return@launch
+                            }
+
                             status = "دیکد..."
                             progress = 0.1f
                             val decoded = withContext(Dispatchers.IO) {
-                                AudioDecoder.decode(ctx, uri)
+                                AudioDecoder.decodeFile(inputFile)
                             }
                             progress = 0.3f
                             status = "پردازش..."
