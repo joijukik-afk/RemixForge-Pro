@@ -133,9 +133,7 @@ fun HomeScreen(onPresetSelected: (String, RemixPreset) -> Unit) {
             ) {
                 items(PresetRepository.presets) { p ->
                     Card(
-                        onClick = {
-                            localPath?.let { onPresetSelected(it, p) }
-                        },
+                        onClick = { localPath?.let { onPresetSelected(it, p) } },
                         enabled = localPath != null,
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -151,24 +149,18 @@ fun HomeScreen(onPresetSelected: (String, RemixPreset) -> Unit) {
     }
 }
 
-/**
- * URI رو می‌خونه و به یه فایل محلی کپی می‌کنه
- */
 private fun copyUriToCache(ctx: android.content.Context, uri: Uri): File {
     val dir = File(ctx.cacheDir, "input").apply { mkdirs() }
-    val out = File(dir, "input_${System.currentTimeMillis()}.audio")
-
-    // اسم اصلی رو تا جای ممکن نگه دار (اختیاری)
-    val name = queryName(ctx, uri)
-    val finalFile = if (name != null) File(dir, name) else out
+    val name = queryName(ctx, uri) ?: "input_${System.currentTimeMillis()}.audio"
+    val out = File(dir, name)
 
     ctx.contentResolver.openInputStream(uri)?.use { input ->
-        finalFile.outputStream().use { output ->
+        out.outputStream().use { output ->
             input.copyTo(output)
         }
     } ?: throw Exception("نمی‌توان فایل را باز کرد")
 
-    return finalFile
+    return out
 }
 
 private fun queryName(ctx: android.content.Context, uri: Uri): String? {
