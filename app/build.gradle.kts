@@ -19,10 +19,12 @@ android {
     buildFeatures {
         compose = true
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
     kotlinOptions {
         jvmTarget = "17"
     }
@@ -42,8 +44,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
 
     // کتابخانه‌های صوتی حرفه‌ای
-    implementation("com.github.Tianscar:SoundTouch4Android:1.0.2") // SoundTouch
-    implementation("com.github.NorthernCaptain:TAndroidLame:1.1") // LAME MP3 Encoder
+    implementation("com.github.Tianscar:SoundTouch4Android:1.0.2") 
+    implementation("com.github.naman14:TAndroidLame:1.1") 
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
