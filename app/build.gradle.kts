@@ -13,18 +13,16 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "2.0.0" // نسخه حرفه‌ای
     }
 
     buildFeatures {
         compose = true
     }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
     kotlinOptions {
         jvmTarget = "17"
     }
@@ -43,9 +41,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.core:core-ktx:1.13.1")
 
-    // کتابخانه‌های صوتی حرفه‌ای
-    implementation("com.github.Tianscar:SoundTouch4Android:1.0.2") 
-    implementation("com.github.naman14:TAndroidLame:1.1") 
+    // خروجی MP3
+    implementation("com.github.naman14:TAndroidLame:1.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
