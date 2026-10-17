@@ -1,20 +1,27 @@
 package com.remixforge.pro.ui.screen
 
+import android.content.ContentValues
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import com.remixforge.pro.data.dsp.AudioDecoder
 import com.remixforge.pro.data.dsp.DspChain
 import com.remixforge.pro.data.dsp.WavWriter
 import com.remixforge.pro.data.model.RemixPreset
-import com.remixforge.pro.util.FileUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,15 +40,12 @@ fun EditorScreen(
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var progress by remember { mutableStateOf(0f) }
-    var result by remember { mutableStateOf<File?>(null) }
+    var resultFile by remember { mutableStateOf<File?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     var tempo by remember { mutableStateOf(preset.tempo) }
     var reverbWet by remember { mutableStateOf(preset.reverbWet) }
     var lowpass by remember { mutableStateOf(preset.lowpassHz.toFloat()) }
-
-    // این متغیر باعث می‌شه Compose با هر تغییر progress، UI رو رفرش کنه
-    var uiTick by remember { mutableStateOf(0) }
 
     Scaffold(
         topBar = {
@@ -63,66 +67,51 @@ fun EditorScreen(
                 .padding(16.dp)
         ) {
             Text("سرعت: ${"%.2f".format(tempo)}x")
-            Slider(
-                value = tempo,
-                onValueChange = { tempo = it },
-                valueRange = 0.5f..1.5f,
-                enabled = !busy
-            )
+            Slider(value = tempo, onValueChange = { tempo = it }, valueRange = 0.5f..1.5f, enabled = !busy)
 
             Text("ریورب: ${"%.0f".format(reverbWet * 100)}%")
-            Slider(
-                value = reverbWet,
-                onValueChange = { reverbWet = it },
-                valueRange = 0f..0.8f,
-                enabled = !busy
-            )
+            Slider(value = reverbWet, onValueChange = { reverbWet = it }, valueRange = 0f..0.8f, enabled = !busy)
 
             Text("Lowpass: ${lowpass.toInt()} Hz")
-            Slider(
-                value = lowpass,
-                onValueChange = { lowpass = it },
-                valueRange = 4000f..20000f,
-                enabled = !busy
-            )
+            Slider(value = lowpass, onValueChange = { lowpass = it }, valueRange = 4000f..20000f, enabled = !busy)
 
             Spacer(Modifier.height(20.dp))
 
             if (busy) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    "$status  (${(progress * 100).toInt()}%)",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Text("$status (${(progress * 100).toInt()}%)", style = MaterialTheme.typography.bodyMedium)
             }
 
             error?.let {
                 Spacer(Modifier.height(8.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    )
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                 ) {
-                    Text(
-                        it,
-                        Modifier.padding(12.dp),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Text(it, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
                 }
             }
 
-            result?.let {
+            resultFile?.let { file ->
                 Spacer(Modifier.height(8.dp))
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("✓ آماده شد", style = MaterialTheme.typography.titleSmall)
-                        Text(it.absolutePath, style = MaterialTheme.typography.bodySmall)
+                        Text("✓ با موفقیت ذخیره شد", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(4.dp))
+                        Text("مسیر: Downloads/RemixForgePro/${file.name}", style = MaterialTheme.typography.bodySmall)
+                        
+                        Spacer(Modifier.height(12.dp))
+                        
+                        Button(
+                            onClick = { shareFile(ctx, file) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("اشتراک‌گذاری فایل")
+                        }
                     }
                 }
             }
@@ -133,11 +122,9 @@ fun EditorScreen(
                 onClick = {
                     busy = true
                     error = null
-                    result = null
+                    resultFile = null
                     progress = 0f
                     status = "شروع..."
-                    uiTick++
-
                     scope.launch {
                         try {
                             val inputFile = File(localPath)
@@ -147,30 +134,14 @@ fun EditorScreen(
                                 return@launch
                             }
 
-                            val sizeMb = inputFile.length() / (1024 * 1024)
-                            if (sizeMb > 80) {
-                                error = "فایل خیلی بزرگه (${sizeMb}MB). آهنگ کوتاه‌تر انتخاب کن."
-                                busy = false
-                                return@launch
-                            }
-
                             status = "دیکد..."
                             progress = 0.1f
-                            uiTick++
                             val decoded = withContext(Dispatchers.IO) {
                                 AudioDecoder.decodeFile(inputFile)
                             }
 
-                            val durationSec = decoded.samples.size / decoded.channels / decoded.sampleRate
-                            if (durationSec > 480) {
-                                error = "آهنگ بیش از ۸ دقیقه‌ست. کوتاه‌تر انتخاب کن."
-                                busy = false
-                                return@launch
-                            }
-
                             progress = 0.2f
                             status = "پردازش..."
-                            uiTick++
 
                             val modified = preset.copy(
                                 tempo = tempo,
@@ -179,41 +150,29 @@ fun EditorScreen(
                             )
                             val processed = withContext(Dispatchers.Default) {
                                 DspChain(modified, decoded.sampleRate).process(
-                                    decoded.samples,
-                                    decoded.channels
+                                    decoded.samples, decoded.channels
                                 ) { stage, p ->
-                                    // این callback داخل thread پس‌زمینه اجرا می‌شه
-                                    // برای امنیت، مقادیر رو آپدیت می‌کنیم
                                     status = stage
                                     progress = 0.2f + p * 0.6f
-                                    uiTick++
                                 }
                             }
 
                             progress = 0.85f
                             status = "ذخیره..."
-                            uiTick++
-                            val wav = File(
-                                FileUtils.remixDir(ctx),
-                                "remix_${System.currentTimeMillis()}.wav"
-                            )
-                            withContext(Dispatchers.IO) {
-                                WavWriter.write(wav, processed, decoded.sampleRate, decoded.channels)
+
+                            val fileName = "RemixForge_${System.currentTimeMillis()}.wav"
+                            val savedFile = withContext(Dispatchers.IO) {
+                                saveToDownloads(ctx, fileName, processed, decoded.sampleRate, decoded.channels)
                             }
+
                             progress = 1f
                             status = "تمام ✓"
-                            uiTick++
-                            result = wav
-                            onExported(wav)
+                            resultFile = savedFile
+                            onExported(savedFile)
                         } catch (t: Throwable) {
-                            val msg = when (t) {
-                                is OutOfMemoryError -> "حافظه کافی نیست. آهنگ کوتاه‌تر انتخاب کن."
-                                else -> "${t.javaClass.simpleName}: ${t.message ?: "نامشخص"}"
-                            }
-                            error = msg
+                            error = "${t.javaClass.simpleName}: ${t.message ?: "نامشخص"}"
                         } finally {
                             busy = false
-                            uiTick++
                         }
                     }
                 },
@@ -223,5 +182,63 @@ fun EditorScreen(
                 Text(if (busy) "در حال پردازش..." else "ساخت ریمیکس")
             }
         }
+    }
+}
+
+private fun saveToDownloads(
+    ctx: android.content.Context,
+    fileName: String,
+    samples: FloatArray,
+    sr: Int,
+    ch: Int
+): File {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, "audio/wav")
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/RemixForgePro")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val resolver = ctx.contentResolver
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw Exception("نمی‌توان فایل ساخت")
+
+        resolver.openOutputStream(uri)?.use { os ->
+            WavWriter.writeToStream(os, samples, sr, ch)
+        } ?: throw Exception("نمی‌توان نوشت")
+
+        values.clear()
+        values.put(MediaStore.Downloads.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+
+        File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "RemixForgePro/$fileName")
+    } else {
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "RemixForgePro"
+        ).apply { mkdirs() }
+        val file = File(dir, fileName)
+        WavWriter.write(file, samples, sr, ch)
+        file
+    }
+}
+
+private fun shareFile(ctx: android.content.Context, file: File) {
+    try {
+        val uri: Uri = FileProvider.getUriForFile(
+            ctx,
+            "${ctx.packageName}.fileprovider",
+            file
+        )
+
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "audio/wav"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        ctx.startActivity(Intent.createChooser(intent, "اشتراک‌گذاری فایل با..."))
+    } catch (e: Exception) {
+        // لاگ کردن خطا
     }
 }
