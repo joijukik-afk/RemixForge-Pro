@@ -22,124 +22,41 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.remixforge.pro.data.model.RemixPreset
 import com.remixforge.pro.data.repository.PresetRepository
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onPresetSelected: (String, RemixPreset) -> Unit) {
+fun HomeScreen(onPresetSelected: (Uri, RemixPreset) -> Unit) {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var localPath by remember { mutableStateOf<String?>(null) }
-    var fileName by remember { mutableStateOf<String?>(null) }
-    var isCopying by remember { mutableStateOf(false) }
-    var copyError by remember { mutableStateOf<String?>(null) }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { selected ->
-        if (selected != null) {
-            isCopying = true
-            copyError = null
-            scope.launch {
-                try {
-                    val localFile = withContext(Dispatchers.IO) {
-                        copyUriToCache(ctx, selected)
-                    }
-                    localPath = localFile.absolutePath
-                    fileName = localFile.name
-                } catch (e: Exception) {
-                    copyError = "خطا در کپی: ${e.message}"
-                } finally {
-                    isCopying = false
-                }
-            }
-        }
-    }
+    var uri by remember { mutableStateOf<Uri?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { if (it != null) uri = it }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("RemixForge Pro") }) },
         floatingActionButton = {
             FloatingActionButton(onClick = {
-                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                    Manifest.permission.READ_MEDIA_AUDIO
-                else
-                    Manifest.permission.READ_EXTERNAL_STORAGE
-
-                val has = ContextCompat.checkSelfPermission(ctx, permission) ==
-                        PackageManager.PERMISSION_GRANTED
-
-                if (has) picker.launch(arrayOf("audio/*"))
-                else permissionLauncher.launch(permission)
-            }) {
-                Icon(Icons.Default.Add, contentDescription = "add")
-            }
+                val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+                if (ContextCompat.checkSelfPermission(ctx, perm) == PackageManager.PERMISSION_GRANTED) {
+                    picker.launch(arrayOf("audio/*"))
+                } else {
+                    // درخواست مجوز ساده
+                }
+            }) { Icon(Icons.Default.Add, null) }
         }
     ) { pad ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(pad)
-                .padding(16.dp)
-        ) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.MusicNote, contentDescription = null)
+        Column(Modifier.fillMaxSize().padding(pad).padding(16.dp)) {
+            Card(Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.MusicNote, null)
                     Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            when {
-                                isCopying -> "در حال کپی فایل..."
-                                localPath != null -> "آهنگ آماده ✓"
-                                else -> "آهنگی انتخاب نشده"
-                            },
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            when {
-                                isCopying -> "صبر کن..."
-                                fileName != null -> fileName!!
-                                else -> "دکمه + پایین"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2
-                        )
-                    }
+                    Text(if (uri == null) "آهنگی انتخاب نشده" else "آهنگ انتخاب شد ✓")
                 }
             }
-
-            copyError?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(it, color = MaterialTheme.colorScheme.error)
-            }
-
-            Spacer(Modifier.height(20.dp))
-            Text("پریست‌ها:", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(12.dp))
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
+            Spacer(Modifier.height(16.dp))
+            LazyVerticalGrid(columns = GridCells.Fixed(2), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(PresetRepository.presets) { p ->
-                    Card(
-                        onClick = { localPath?.let { onPresetSelected(it, p) } },
-                        enabled = localPath != null,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                    Card(onClick = { uri?.let { onPresetSelected(it, p) } }, enabled = uri != null) {
                         Column(Modifier.padding(12.dp)) {
                             Text(p.name, style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(4.dp))
                             Text(p.description, style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -147,27 +64,4 @@ fun HomeScreen(onPresetSelected: (String, RemixPreset) -> Unit) {
             }
         }
     }
-}
-
-private fun copyUriToCache(ctx: android.content.Context, uri: Uri): File {
-    val dir = File(ctx.cacheDir, "input").apply { mkdirs() }
-    val name = queryName(ctx, uri) ?: "input_${System.currentTimeMillis()}.audio"
-    val out = File(dir, name)
-
-    ctx.contentResolver.openInputStream(uri)?.use { input ->
-        out.outputStream().use { output ->
-            input.copyTo(output)
-        }
-    } ?: throw Exception("نمی‌توان فایل را باز کرد")
-
-    return out
-}
-
-private fun queryName(ctx: android.content.Context, uri: Uri): String? {
-    return try {
-        ctx.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-            if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
-        }
-    } catch (_: Exception) { null }
 }
