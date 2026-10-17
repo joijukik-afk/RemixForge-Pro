@@ -10,8 +10,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") } // افزودن JitPack
+        maven { url = uri("https://jitpack.io") } // این خط حتماً باید باشه
     }
 }
-rootProject.name = "RemixForgePro"
+rootProject.name = "RemixForge-Pro"
 include(":app")
