@@ -41,10 +41,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.core:core-ktx:1.13.1")
 
-    // کتابخانه MP3 با تنظیمات ضد تداخل (حذف کتابخانه قدیمی)
-    implementation("com.github.naman14:TAndroidLame:1.1") {
-        exclude(group = "com.android.support")
-    }
+    // کتابخانه FFmpegKit نگهداری‌شده (از Maven Central - بدون نیاز به JitPack)
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
