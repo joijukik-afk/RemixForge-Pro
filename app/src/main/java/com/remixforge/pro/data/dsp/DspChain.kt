@@ -28,10 +28,10 @@ class DspChain(private val preset: RemixPreset, private val sr: Int) {
             preset.compAttackMs, preset.compReleaseMs, sr
         ).processStereo(s)
 
-        onStage("تغییر سرعت...", 0.50f)
-        if (preset.tempo != 1.0f) {
-            s = SimpleStretch.process(s, preset.tempo, channels)
-        }
+        // استفاده از SoundTouch برای تغییر سرعت و پیچ حرفه‌ای
+        onStage("تغییر سرعت (SoundTouch)...", 0.50f)
+        val manager = SoundTouchManager(sr, channels)
+        s = manager.process(s, preset.tempo, preset.pitchSemitones)
 
         onStage("Reverb...", 0.70f)
         if (preset.reverbWet > 0.01f && channels == 2) {
