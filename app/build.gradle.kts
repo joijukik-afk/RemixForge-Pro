@@ -13,7 +13,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "2.0.0" // نسخه حرفه‌ای
+        versionName = "2.0.0"
     }
 
     buildFeatures {
@@ -41,8 +41,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.core:core-ktx:1.13.1")
 
-    // خروجی MP3
-    implementation("com.github.naman14:TAndroidLame:1.1")
+    // کتابخانه MP3 با تنظیمات ضد تداخل (حذف کتابخانه قدیمی)
+    implementation("com.github.naman14:TAndroidLame:1.1") {
+        exclude(group = "com.android.support")
+    }
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
