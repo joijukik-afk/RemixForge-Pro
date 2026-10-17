@@ -158,7 +158,7 @@ fun EditorScreen(
                             }
 
                             progress = 0.85f
-                            status = "تبدیل به MP3 و ذخیره..."
+                            status = "تبدیل به MP3..."
 
                             val fileName = "RemixForge_${System.currentTimeMillis()}.mp3"
                             val savedFile = withContext(Dispatchers.IO) {
@@ -204,8 +204,7 @@ private fun saveToDownloads(
             ?: throw Exception("نمی‌توان فایل ساخت")
 
         resolver.openOutputStream(uri)?.use { os ->
-            // استفاده از Mp3Encoder برای نوشتن مستقیم
-            Mp3Encoder.encodeToMp3(samples, sr, ch, File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "temp.mp3"))
+            Mp3Encoder.encodeToMp3(samples, sr, ch, os)
         } ?: throw Exception("نمی‌توان نوشت")
 
         values.clear()
@@ -231,15 +230,11 @@ private fun shareFile(ctx: android.content.Context, file: File) {
             "${ctx.packageName}.fileprovider",
             file
         )
-
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "audio/mpeg"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-
         ctx.startActivity(Intent.createChooser(intent, "اشتراک‌گذاری فایل با..."))
-    } catch (e: Exception) {
-        // لاگ کردن خطا
-    }
+    } catch (e: Exception) { }
 }
