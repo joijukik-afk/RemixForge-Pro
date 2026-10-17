@@ -26,9 +26,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             RemixForgeProTheme {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    AppNav()
-                }
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { AppNav() }
             }
         }
     }
@@ -39,24 +37,17 @@ private fun AppNav() {
     val nav = rememberNavController()
     NavHost(nav, startDestination = "home") {
         composable("home") {
-            HomeScreen(
-                onPresetSelected = { path, preset ->
-                    val enc = URLEncoder.encode(path, StandardCharsets.UTF_8.name())
-                    nav.navigate("editor/$enc/${preset.id}")
-                }
-            )
+            HomeScreen(onPresetSelected = { uri, preset ->
+                val enc = URLEncoder.encode(uri.toString(), StandardCharsets.UTF_8.name())
+                nav.navigate("editor/$enc/${preset.id}")
+            })
         }
-        composable("editor/{path}/{presetId}") { entry ->
-            val enc = entry.arguments?.getString("path") ?: return@composable
+        composable("editor/{uri}/{presetId}") { entry ->
+            val enc = entry.arguments?.getString("uri") ?: return@composable
             val pid = entry.arguments?.getString("presetId") ?: return@composable
-            val path = URLDecoder.decode(enc, StandardCharsets.UTF_8.name())
+            val uri = android.net.Uri.parse(URLDecoder.decode(enc, StandardCharsets.UTF_8.name()))
             val preset = PresetRepository.getById(pid) ?: return@composable
-            EditorScreen(
-                localPath = path,
-                preset = preset,
-                onBack = { nav.popBackStack() },
-                onExported = { }
-            )
+            EditorScreen(localUri = uri, preset = preset, onBack = { nav.popBackStack() }, onExported = {})
         }
     }
 }
