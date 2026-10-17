@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -44,7 +45,6 @@ fun EditorScreen(
     var resultFile by remember { mutableStateOf<File?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    // تنظیمات
     var tempo by remember { mutableStateOf(preset.tempo) }
     var reverbWet by remember { mutableStateOf(preset.reverbWet) }
     var lowpass by remember { mutableStateOf(preset.lowpassHz.toFloat()) }
@@ -62,22 +62,19 @@ fun EditorScreen(
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(16.dp)) {
             
-            // --- تنظیمات میکس دو آهنگ ---
             Button(onClick = { pickSecondAudio.launch(arrayOf("audio/*")) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                 Text(if (secondUri == null) "افزودن آهنگ دوم برای میکس" else "آهنگ دوم انتخاب شد ✓")
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // --- حذف وکال ---
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = removeVocals, onCheckedChange = { removeVocals = it }, enabled = !busy)
                 Text("حذف وکال (Karaoke Mode)")
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // --- تنظیمات Tempo و Reverb ---
             Text("سرعت: ${"%.2f".format(tempo)}x")
             Slider(value = tempo, onValueChange = { tempo = it }, valueRange = 0.5f..1.5f, enabled = !busy)
 
@@ -89,7 +86,6 @@ fun EditorScreen(
 
             Spacer(Modifier.height(20.dp))
 
-            // --- وضعیت پردازش (AI Monitor) ---
             if (busy) {
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
@@ -103,7 +99,6 @@ fun EditorScreen(
                 }
             }
 
-            // --- کارت خروجی ---
             resultFile?.let { file ->
                 Spacer(Modifier.height(8.dp))
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -122,7 +117,6 @@ fun EditorScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // --- دکمه ساخت ریمیکس ---
             Button(
                 onClick = {
                     busy = true; error = null; resultFile = null; progress = 0f
@@ -142,7 +136,6 @@ fun EditorScreen(
                                 status = s
                             }
 
-                            // کپی به پوشه Downloads
                             val savedFile = withContext(Dispatchers.IO) {
                                 saveToDownloads(ctx, result.name, result)
                             }
@@ -158,25 +151,26 @@ fun EditorScreen(
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
-                Text(if (busy) "در حال پردازش..." else "شروع ریمیکس حرفه‌ای", style = MaterialTheme.typography.titleMedium)
+                Text(if (busy) "در حال پردازش..." else "شروع ریمیکس حرفه‌ای (MP3)", style = MaterialTheme.typography.titleMedium)
             }
         }
     }
 }
 
 private fun saveToDownloads(ctx: android.content.Context, fileName: String, sourceFile: File): File {
+    val finalName = "RemixForge_${System.currentTimeMillis()}.mp3"
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, "RemixForge_${System.currentTimeMillis()}.mp3")
+            put(MediaStore.Downloads.DISPLAY_NAME, finalName)
             put(MediaStore.Downloads.MIME_TYPE, "audio/mpeg")
             put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/RemixForgePro")
         }
         val uri = ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)!!
         ctx.contentResolver.openOutputStream(uri)?.use { os -> sourceFile.inputStream().copyTo(os) }
-        File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "RemixForgePro/RemixForge_${System.currentTimeMillis()}.mp3")
+        File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "RemixForgePro/$finalName")
     } else {
         val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "RemixForgePro").apply { mkdirs() }
-        val out = File(dir, "RemixForge_${System.currentTimeMillis()}.mp3")
+        val out = File(dir, finalName)
         sourceFile.copyTo(out, overwrite = true)
         out
     }
