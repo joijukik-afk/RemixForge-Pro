@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.remixforge.pro.data.dsp.AudioDecoder
 import com.remixforge.pro.data.dsp.DspChain
-import com.remixforge.pro.data.dsp.WavWriter
+import com.remixforge.pro.data.dsp.Mp3Encoder
 import com.remixforge.pro.data.model.RemixPreset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -158,9 +158,9 @@ fun EditorScreen(
                             }
 
                             progress = 0.85f
-                            status = "ذخیره..."
+                            status = "تبدیل به MP3 و ذخیره..."
 
-                            val fileName = "RemixForge_${System.currentTimeMillis()}.wav"
+                            val fileName = "RemixForge_${System.currentTimeMillis()}.mp3"
                             val savedFile = withContext(Dispatchers.IO) {
                                 saveToDownloads(ctx, fileName, processed, decoded.sampleRate, decoded.channels)
                             }
@@ -195,7 +195,7 @@ private fun saveToDownloads(
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-            put(MediaStore.Downloads.MIME_TYPE, "audio/wav")
+            put(MediaStore.Downloads.MIME_TYPE, "audio/mpeg")
             put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/RemixForgePro")
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
@@ -204,7 +204,8 @@ private fun saveToDownloads(
             ?: throw Exception("نمی‌توان فایل ساخت")
 
         resolver.openOutputStream(uri)?.use { os ->
-            WavWriter.writeToStream(os, samples, sr, ch)
+            // استفاده از Mp3Encoder برای نوشتن مستقیم
+            Mp3Encoder.encodeToMp3(samples, sr, ch, File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "temp.mp3"))
         } ?: throw Exception("نمی‌توان نوشت")
 
         values.clear()
@@ -218,7 +219,7 @@ private fun saveToDownloads(
             "RemixForgePro"
         ).apply { mkdirs() }
         val file = File(dir, fileName)
-        WavWriter.write(file, samples, sr, ch)
+        Mp3Encoder.encodeToMp3(samples, sr, ch, file)
         file
     }
 }
@@ -232,7 +233,7 @@ private fun shareFile(ctx: android.content.Context, file: File) {
         )
 
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "audio/wav"
+            type = "audio/mpeg"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
