@@ -12,28 +12,29 @@ class DspChain(private val preset: RemixPreset, private val sr: Int) {
     ): FloatArray {
         var s = input
 
-        onStage("Highpass...", 0.05f)
+        onStage("فیلتر بالاگذر...", 0.05f)
         if (preset.highpassHz > 20) {
             s = BiquadHighpass(preset.highpassHz, sr).process(s)
         }
 
-        onStage("EQ...", 0.20f)
+        onStage("اکولایزر...", 0.20f)
         if (preset.eqBands.isNotEmpty()) {
             s = EQProcessor(sr, preset.eqBands).process(s)
         }
 
-        onStage("Compressor...", 0.35f)
+        onStage("کمپرسور...", 0.35f)
         s = CompressorProcessor(
             preset.compThresholdDb, preset.compRatio,
             preset.compAttackMs, preset.compReleaseMs, sr
         ).processStereo(s)
 
-        // استفاده از SoundTouch برای تغییر سرعت و پیچ حرفه‌ای
-        onStage("تغییر سرعت (SoundTouch)...", 0.50f)
-        val manager = SoundTouchManager(sr, channels)
-        s = manager.process(s, preset.tempo, preset.pitchSemitones)
+        onStage("تغییر سرعت و پیچ...", 0.50f)
+        if (preset.tempo != 1.0f || preset.pitchSemitones != 0f) {
+            val manager = SoundTouchManager(sr, channels)
+            s = manager.process(s, preset.tempo, preset.pitchSemitones)
+        }
 
-        onStage("Reverb...", 0.70f)
+        onStage("ریورب...", 0.70f)
         if (preset.reverbWet > 0.01f && channels == 2) {
             s = ReverbProcessor(
                 sr, preset.reverbWet,
@@ -41,7 +42,7 @@ class DspChain(private val preset: RemixPreset, private val sr: Int) {
             ).process(s)
         }
 
-        onStage("Lowpass...", 0.85f)
+        onStage("فیلتر پایین‌گذر...", 0.85f)
         if (preset.lowpassHz < 20000) {
             s = BiquadLowpass(preset.lowpassHz, sr).process(s)
         }
@@ -57,7 +58,7 @@ class DspChain(private val preset: RemixPreset, private val sr: Int) {
             for (i in s.indices) s[i] *= g
         }
 
-        onStage("تمام", 1.0f)
+        onStage("پایان پردازش", 1.0f)
         return s
     }
 }
