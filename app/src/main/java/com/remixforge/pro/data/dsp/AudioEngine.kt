@@ -1,11 +1,11 @@
 package com.remixforge.pro.data.dsp
 
 import android.content.Context
-import android.net.Uri
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import com.naman14.tandroidlame.TAndroidLame
+import android.net.Uri
+import com.arthenica.ffmpegkit.FFmpegKit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -15,30 +15,13 @@ import java.nio.ByteOrder
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.random.Random
 
 object AudioEngine {
 
-    // --- هوش مصنوعی نظارت‌گر (AI Quality Monitor) ---
-    data class QualityReport(var peak: Float = 0f, var clipping: Boolean = false, var dcOffset: Float = 0f)
-    
-    fun monitorQuality(samples: FloatArray): QualityReport {
-        var peak = 0f
-        var sum = 0.0
-        for (s in samples) {
-            val a = abs(s)
-            if (a > peak) peak = a
-            sum += s
-        }
-        return QualityReport(peak, peak >= 0.99f, (sum / samples.size).toFloat())
-    }
-
-    // --- پردازش آهنگ اصلی (با چانک‌بندی برای جلوگیری از کرش) ---
     suspend fun processAudio(
         context: Context,
         inputUri: Uri,
-        secondUri: Uri?, // برای میکس دو آهنگ
+        secondUri: Uri?,
         tempo: Float,
         pitch: Float,
         reverb: Float,
@@ -49,13 +32,11 @@ object AudioEngine {
         onProgress(0.05f, "استخراج فایل...")
         val mainFile = copyUriToCache(context, inputUri)
         
-        // دیکد فایل اول
         val audio1 = decodeAudio(mainFile)
         var samples = audio1.samples
         val sr = audio1.sampleRate
         val ch = audio1.channels
 
-        // میکس با فایل دوم (در صورت وجود)
         if (secondUri != null) {
             onProgress(0.15f, "میکس آهنگ دوم...")
             val file2 = copyUriToCache(context, secondUri)
@@ -76,24 +57,58 @@ object AudioEngine {
         onProgress(0.7f, "اعمال افکت‌ها...")
         samples = applyEffects(samples, ch, sr, reverb, lowpass)
 
-        onProgress(0.85f, "بررسی کیفیت (AI)...")
-        val report = monitorQuality(samples)
-        if (report.clipping) {
-            // اصلاح خودکار کلیپینگ
-            var max = 0f
-            for (s in samples) { if (abs(s) > max) max = abs(s) }
-            if (max > 0f) for (i in samples.indices) samples[i] /= max
-        }
+        onProgress(0.85f, "بررسی کیفیت...")
+        var max = 0f
+        for (s in samples) { if (abs(s) > max) max = abs(s) }
+        if (max > 0f) for (i in samples.indices) samples[i] /= max
 
         onProgress(0.9f, "تبدیل به MP3...")
-        val outFile = File(context.cacheDir, "remix_${System.currentTimeMillis()}.mp3")
-        encodeToMp3(samples, sr, ch, outFile)
+        val wavFile = File(context.cacheDir, "temp_${System.currentTimeMillis()}.wav")
+        writeWav(wavFile, samples, sr, ch)
+
+        val mp3File = File(context.cacheDir, "remix_${System.currentTimeMillis()}.mp3")
+        val session = FFmpegKit.execute(
+            "-y -i ${wavFile.absolutePath} -codec:a libmp3lame -b:a 320k ${mp3File.absolutePath}"
+        )
+        
+        // پاک کردن فایل موقت WAV
+        wavFile.delete()
+
+        if (!mp3File.exists() || mp3File.length() == 0L) {
+            throw RuntimeException("خطا در تبدیل به MP3")
+        }
 
         onProgress(1.0f, "تمام شد")
-        outFile
+        mp3File
     }
 
-    // --- الگوریتم حرفه‌ای WSOLA ---
+    private fun writeWav(file: File, samples: FloatArray, sampleRate: Int, channels: Int) {
+        val dataSize = samples.size * 2
+        FileOutputStream(file).use { out ->
+            val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+            header.put("RIFF".toByteArray())
+            header.putInt(36 + dataSize)
+            header.put("WAVE".toByteArray())
+            header.put("fmt ".toByteArray())
+            header.putInt(16)
+            header.putShort(1)
+            header.putShort(channels.toShort())
+            header.putInt(sampleRate)
+            header.putInt(sampleRate * channels * 2)
+            header.putShort((channels * 2).toShort())
+            header.putShort(16)
+            header.put("data".toByteArray())
+            header.putInt(dataSize)
+            out.write(header.array())
+
+            val pcm = ByteBuffer.allocate(samples.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+            for (s in samples) {
+                pcm.putShort((s.coerceIn(-1f, 1f) * 32767f).toInt().toShort())
+            }
+            out.write(pcm.array())
+        }
+    }
+
     private fun timeStretchWSOLA(input: FloatArray, speed: Float, channels: Int, sr: Int): FloatArray {
         val windowSize = (0.04 * sr).toInt()
         val hopSize = windowSize / 4
@@ -117,32 +132,29 @@ object AudioEngine {
         return output
     }
 
-    // --- حذف وکال (Center Channel Cancellation) ---
     private fun removeVocals(input: FloatArray): FloatArray {
         val out = FloatArray(input.size)
         for (i in 0 until input.size / 2) {
             val l = input[i * 2]
             val r = input[i * 2 + 1]
-            val mid = (l - r) * 0.7f // کاهش صدای مرکز (وکال)
+            val mid = (l - r) * 0.7f
             out[i * 2] = mid
             out[i * 2 + 1] = mid
         }
         return out
     }
 
-    // --- میکس دو آهنگ ---
     private fun mixTracks(a: FloatArray, b: FloatArray): FloatArray {
         val maxLen = maxOf(a.size, b.size)
         val out = FloatArray(maxLen)
         for (i in 0 until maxLen) {
             val sa = if (i < a.size) a[i] else 0f
             val sb = if (i < b.size) b[i] else 0f
-            out[i] = (sa + sb) * 0.5f // جلوگیری از کلیپینگ
+            out[i] = (sa + sb) * 0.5f
         }
         return out
     }
 
-    // --- افکت‌ها (ریورب ساده و فیلتر) ---
     private fun applyEffects(input: FloatArray, channels: Int, sr: Int, reverb: Float, lowpass: Int): FloatArray {
         var out = input
         if (lowpass < 20000) out = lowPassFilter(out, lowpass, sr)
@@ -171,14 +183,15 @@ object AudioEngine {
         return out
     }
 
-    // --- دیکدر ---
     private fun decodeAudio(file: File): DecodedAudio {
         val extractor = MediaExtractor()
         extractor.setDataSource(file.absolutePath)
         var trackIndex = -1; var format: MediaFormat? = null
         for (i in 0 until extractor.trackCount) {
             val f = extractor.getTrackFormat(i)
-            if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) { trackIndex = i; format = f; break }
+            if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                trackIndex = i; format = f; break
+            }
         }
         extractor.selectTrack(trackIndex)
         val mime = format!!.getString(MediaFormat.KEY_MIME)!!
@@ -199,8 +212,13 @@ object AudioEngine {
                 if (inIdx >= 0) {
                     val buf = codec.getInputBuffer(inIdx)!!
                     val size = extractor.readSampleData(buf, 0)
-                    if (size < 0) { codec.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM); inputDone = true }
-                    else { codec.queueInputBuffer(inIdx, 0, size, extractor.sampleTime, 0); extractor.advance() }
+                    if (size < 0) {
+                        codec.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        inputDone = true
+                    } else {
+                        codec.queueInputBuffer(inIdx, 0, size, extractor.sampleTime, 0)
+                        extractor.advance()
+                    }
                 }
             }
             val outIdx = codec.dequeueOutputBuffer(info, 10000)
@@ -217,19 +235,11 @@ object AudioEngine {
         return DecodedAudio(out.toFloatArray(), sr, ch)
     }
 
-    // --- انکودر MP3 ---
-    private fun encodeToMp3(samples: FloatArray, sr: Int, ch: Int, outFile: File) {
-        val lame = TAndroidLame()
-        lame.initEncoder(sr, ch, sr, 320, 2)
-        val shorts = ShortArray(samples.size) { (samples[it].coerceIn(-1f, 1f) * 32767).toInt().toShort() }
-        outFile.outputStream().use { lame.encode(shorts, shorts.size, it) }
-        lame.flush(outFile.outputStream())
-        lame.close()
-    }
-
     private fun copyUriToCache(ctx: Context, uri: Uri): File {
         val f = File(ctx.cacheDir, "input_${System.currentTimeMillis()}.audio")
-        ctx.contentResolver.openInputStream(uri)?.use { input -> f.outputStream().use { input.copyTo(it) } }
+        ctx.contentResolver.openInputStream(uri)?.use { input ->
+            f.outputStream().use { input.copyTo(it) }
+        }
         return f
     }
 
